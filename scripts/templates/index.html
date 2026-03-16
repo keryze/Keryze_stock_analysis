@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘 - A股量化监控{% endblock %}
+
+{% block extra_css %}
+<style>
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card, .panel {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  }
+  .stat-card {
+    padding: 20px;
+  }
+  .stat-label {
+    color: #64748b;
+    font-size: 14px;
+  }
+  .stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  .panel {
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .panel-title {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .groups-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .group-card {
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 180px;
+  }
+  .group-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .stock-list {
+    display: grid;
+    gap: 10px;
+  }
+  .stock-item {
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+  }
+  .stock-item:hover {
+    border-color: #2563eb;
+  }
+  .stock-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .stock-name {
+    font-weight: 700;
+  }
+  .stock-code {
+    font-size: 12px;
+    color: #64748b;
+  }
+  .stock-price {
+    font-size: 20px;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  .stock-change {
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 13px;
+  }
+  .positive {
+    color: #dc2626;
+    background: #fef2f2;
+  }
+  .negative {
+    color: #16a34a;
+    background: #f0fdf4;
+  }
+  .muted {
+    color: #64748b;
+  }
+  .rank-list {
+    display: grid;
+    gap: 10px;
+  }
+  .rank-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">监控股票</div>
+    <div class="stat-value" id="totalStocks">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">短期列表</div>
+    <div class="stat-value" id="shortTermCount">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">长期列表</div>
+    <div class="stat-value" id="longTermCount">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">超长期列表</div>
+    <div class="stat-value" id="advancedCount">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">上涨数量</div>
+    <div class="stat-value" id="gainersCount">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">平均涨幅</div>
+    <div class="stat-value" id="avgChange">--</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">市场情绪</div>
+    <div class="muted" id="sentimentUpdate">--</div>
+  </div>
+  <div style="font-size: 28px; font-weight: 700; margin-bottom: 8px;" id="sentimentScoreDisplay">--</div>
+  <div class="muted" id="sentimentDescription">正在加载...</div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">监控列表</div>
+    <div class="muted" id="lastUpdate">--</div>
+  </div>
+  <div class="groups-grid" id="groupsContainer"></div>
+</div>
+
+<div class="groups-grid">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">涨幅榜</div>
+    </div>
+    <div class="rank-list" id="topGainers"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">跌幅榜</div>
+    </div>
+    <div class="rank-list" id="topLosers"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function formatChange(changePct) {
+  const value = Number(changePct || 0);
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+function renderGroups(groups) {
+  const order = ['short_term', 'long_term', 'advanced_long_term'];
+  const html = order.map((key) => {
+    const group = groups[key] || {label: key, stocks: []};
+    const stocksHtml = (group.stocks || []).map((stock) => `
+      <div class="stock-item" data-code="${stock.code}" onclick="location.href='/stock/${stock.code}'">
+        <div class="stock-top">
+          <div>
+            <div class="stock-name">${stock.name}</div>
+            <div class="stock-code">${stock.code}</div>
+          </div>
+          <div class="stock-change ${Number(stock.change_pct || 0) >= 0 ? 'positive' : 'negative'}">${formatChange(stock.change_pct)}</div>
+        </div>
+        <div class="stock-price">¥${Number(stock.price || 0).toFixed(2)}</div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="group-card">
+        <div class="group-title">${group.label} <span class="muted">(${(group.stocks || []).length})</span></div>
+        <div class="stock-list">
+          ${stocksHtml || '<div class="muted">暂无股票</div>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  $('#groupsContainer').html(html);
+}
+
+function updateStats(groups, allStocks) {
+  const valid = allStocks.filter((s) => s.change_pct !== null && s.change_pct !== undefined);
+  const gainers = valid.filter((s) => Number(s.change_pct || 0) > 0);
+  const avg = valid.length ? valid.reduce((sum, s) => sum + Number(s.change_pct || 0), 0) / valid.length : 0;
+
+  $('#totalStocks').text(allStocks.length);
+  $('#shortTermCount').text((groups.short_term?.stocks || []).length);
+  $('#longTermCount').text((groups.long_term?.stocks || []).length);
+  $('#advancedCount').text((groups.advanced_long_term?.stocks || []).length);
+  $('#gainersCount').text(gainers.length);
+  $('#avgChange').text(formatChange(avg));
+}
+
+function renderRankings(allStocks) {
+  const gainers = [...allStocks].sort((a, b) => Number(b.change_pct || 0) - Number(a.change_pct || 0)).slice(0, 5);
+  const losers = [...allStocks].sort((a, b) => Number(a.change_pct || 0) - Number(b.change_pct || 0)).slice(0, 5);
+
+  $('#topGainers').html(gainers.map((stock) => `
+    <div class="rank-item">
+      <div><strong>${stock.name}</strong><div class="stock-code">${stock.code}</div></div>
+      <div class="stock-change ${Number(stock.change_pct || 0) >= 0 ? 'positive' : 'negative'}">${formatChange(stock.change_pct)}</div>
+    </div>
+  `).join('') || '<div class="muted">暂无数据</div>');
+
+  $('#topLosers').html(losers.map((stock) => `
+    <div class="rank-item">
+      <div><strong>${stock.name}</strong><div class="stock-code">${stock.code}</div></div>
+      <div class="stock-change ${Number(stock.change_pct || 0) >= 0 ? 'positive' : 'negative'}">${formatChange(stock.change_pct)}</div>
+    </div>
+  `).join('') || '<div class="muted">暂无数据</div>');
+}
+
+function loadStocks() {
+  $.get('/api/stocks', function(response) {
+    if (response.status !== 'success') {
+      return;
+    }
+    const groups = response.data.groups || {};
+    const allStocks = response.data.all || [];
+    renderGroups(groups);
+    updateStats(groups, allStocks);
+    renderRankings(allStocks);
+    $('#lastUpdate').text(response.timestamp || new Date().toLocaleTimeString());
+  });
+}
+
+function loadMarketSentiment() {
+  $.get('/api/market/sentiment', function(response) {
+    if (response.status !== 'success') {
+      return;
+    }
+    const data = response.data || {};
+    $('#sentimentScoreDisplay').text(`${data.emoji || ''} ${data.level || ''} ${data.score || '--'}分`);
+    $('#sentimentDescription').text(data.description || '暂无描述');
+    $('#sentimentUpdate').text(data.update_time || '--');
+  });
+}
+
+function updateRealtimePrices() {
+  $.get('/api/stocks/realtime', function(response) {
+    if (response.status !== 'success') {
+      return;
+    }
+    (response.data || []).forEach((stock) => {
+      const card = $(`.stock-item[data-code="${stock.code}"]`);
+      card.find('.stock-price').text(`¥${Number(stock.price || 0).toFixed(2)}`);
+      card.find('.stock-change')
+        .attr('class', `stock-change ${Number(stock.change_pct || 0) >= 0 ? 'positive' : 'negative'}`)
+        .text(formatChange(stock.change_pct));
+    });
+  });
+}
+
+$(document).ready(function() {
+  loadStocks();
+  loadMarketSentiment();
+  setInterval(loadStocks, 30000);
+  setInterval(loadMarketSentiment, 30000);
+  setInterval(updateRealtimePrices, 5000);
+});
+</script>
+{% endblock %}
