@@ -61,7 +61,7 @@ enhanced_long_term_selector.py：额外依赖 advanced_long_term_indicators.py +
 ---------------------------------------------------------------------------------------------------------------------
 ---------------------------------------------------------------------------------------------------------------------
 
-cd C:\Users\wzk1311\.openclaw\workspace\skills\a-stock-monitor\scripts
+
 python update_all_market_data.py
 这个命令会从网络获取所有 A股的实时数据
 可能需要 1-5 分钟，取决于网络速度
@@ -70,11 +70,11 @@ python update_all_market_data.py
 python market_sentiment.py
 这个很快，会输出 JSON 格式的市场情绪评分
 
-cd C:\Users\wzk1311\.openclaw\workspace\skills\a-stock-monitor\scripts
+
 python long_term_selector.py
 等几分钟会生成daily_recommendation.txt
 
-cd C:\Users\wzk1311\.openclaw\workspace\skills\a-stock-monitor\scripts
+
 python short_term_selector.py
 等几分钟会生成short_term_recommendation.txt
 
@@ -85,7 +85,7 @@ python short_term_selector.py
 如何单独想算002594这个股票的评分
 在你这个目录运行：
 
-cd C:\Users\wzk1311\.openclaw\workspace\skills\a-stock-monitor\scripts
+
 python -c "from short_term_selector import ShortTermSelector; s=ShortTermSelector(verbose=False); r=s.analyze_single_stock('002594'); print(r if r else 'no result'); s.close()"
 如果你只想看核心结果（评分/评级）：
 
