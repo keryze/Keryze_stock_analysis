@@ -45,6 +45,7 @@ from short_term_indicators import ShortTermIndicators
 from market_sentiment import calculate_market_sentiment
 from env_settings import TUSHARE_TOKEN
 from email_sender import send_email_with_attachment
+from stock_filters import is_risk_name, filter_risk_codes
 
 
 class ShortTermSelector:
@@ -1511,6 +1512,12 @@ class ShortTermSelector:
                 and not code.startswith('920')
             ]
 
+            # 过滤: 剔除 ST/*ST/退市股（基于缓存中的股票名称）
+            name_map = self.cache.get_all_names()
+            filtered, removed = filter_risk_codes(filtered, name_map)
+            if removed:
+                print(f"[风险过滤] 剔除 ST/退市股 {len(removed)} 只")
+
             if not filtered:
                 print("❌ 监控列表过滤后为空（可能全部是创业板/科创板和北交所）")
             return filtered
@@ -1554,6 +1561,10 @@ class ShortTermSelector:
 
             stock_info = self.cache.get_stock(code)
             if not stock_info:
+                return None
+
+            # 剔除 ST/*ST/退市股（防御性拦截，覆盖单只直接调用路径）
+            if is_risk_name(stock_info.get('name')):
                 return None
 
             market_context = self.market_context
@@ -1990,6 +2001,12 @@ if __name__ == '__main__':
         with open(report_file, 'w', encoding='utf-8') as f:
             f.write(report)
         selector.save_selected_watchlist(top_stocks, 'watchlist_short_term.json')
+        try:
+            from site_export import write_short_term
+            write_short_term(top_stocks)
+            print("已导出短线结果到 site/data/short_term.json")
+        except Exception as e:
+            print(f"导出短线站点数据失败: {e}")
         try:
             send_email_with_attachment(
                 subject=f'短线选股报告 {date_suffix}',

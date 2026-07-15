@@ -16,6 +16,7 @@ from stock_cache_db import StockCache
 from advanced_indicators import AdvancedIndicators
 from advanced_long_term_indicators import AdvancedLongTermIndicators
 from fundamental_data import FundamentalData
+from stock_filters import is_risk_name, filter_risk_codes
 
 
 class EnhancedLongTermSelector:
@@ -42,8 +43,15 @@ class EnhancedLongTermSelector:
                 and not code.startswith('920')
             ]
             
+            # 过滤: 剔除 ST/*ST/退市股（基于缓存中的股票名称）
+            name_map = self.cache.get_all_names()
+            filtered, removed = filter_risk_codes(filtered, name_map)
+            if removed:
+                print(f"[风险过滤] 剔除 ST/退市股 {len(removed)} 只")
+
             return filtered
-        except:
+        except Exception as e:
+            print(f"读取 watchlist.json 失败: {e}")
             return []
     
     def analyze_single_stock(self, code: str) -> Dict:
@@ -62,6 +70,10 @@ class EnhancedLongTermSelector:
             if not stock_info:
                 return None
             
+            # 剔除 ST/*ST/退市股（防御性拦截，覆盖单只直接调用路径）
+            if is_risk_name(stock_info.get('name')):
+                return None
+
             score = 0
             max_score = 130  # 扩展总分
             details = {}

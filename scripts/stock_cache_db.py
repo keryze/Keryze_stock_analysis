@@ -183,7 +183,22 @@ class StockCache:
             })
         
         return stocks
-    
+
+    def get_all_names(self) -> Dict[str, str]:
+        """返回全部 code -> name 映射（忽略数据新鲜度）。
+
+        用于 ST/退市风险过滤：名称几乎不随行情更新而变化，
+        因此这里不做 update_time 过期过滤，尽量给出完整映射。
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT code, name FROM stocks')
+        names: Dict[str, str] = {}
+        for code, name in cursor.fetchall():
+            norm_code = self.normalize_code(code)
+            if norm_code and name and norm_code not in names:
+                names[norm_code] = name
+        return names
+
     def save_fund_flow(self, code: str, data: Dict):
         """保存主力资金数据"""
         cursor = self.conn.cursor()

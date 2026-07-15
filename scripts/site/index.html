@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>A股量化选股</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --text:#1a1d21; --muted:#6b7280;
+    --border:#e5e7eb; --accent:#2563eb; --up:#e02424; --down:#16a34a;
+    --core:#16a34a; --watch:#d97706; --drop:#9ca3af; --chip:#eef2ff; --chip-text:#3730a3;
+    --bar-bg:#eef0f3;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f1115; --card:#171a1f; --text:#e6e8eb; --muted:#9aa1ac;
+      --border:#262b33; --accent:#3b82f6; --up:#f87171; --down:#4ade80;
+      --core:#4ade80; --watch:#fbbf24; --drop:#6b7280; --chip:#1e2536; --chip-text:#a5b4fc;
+      --bar-bg:#222732;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin-bottom:4px}
+  h1{font-size:22px;margin:0;font-weight:700}
+  .sub{color:var(--muted);font-size:13px}
+  .tabs{display:flex;gap:6px;margin:18px 0 16px;border-bottom:1px solid var(--border)}
+  .tab{padding:9px 16px;border:none;background:none;color:var(--muted);font-size:15px;
+    font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent)}
+  .group-title{font-size:14px;font-weight:700;margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+  .group-title .dot{width:8px;height:8px;border-radius:50%}
+  .group-title .count{color:var(--muted);font-weight:500;font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .name{font-weight:700;font-size:16px}
+  .code{color:var(--muted);font-size:12px;font-weight:500;margin-left:6px}
+  .score{font-size:22px;font-weight:800;line-height:1;text-align:right}
+  .rating{font-size:11px;color:var(--muted);font-weight:600;text-align:right;margin-top:2px}
+  .price{margin:8px 0 2px;font-size:14px}
+  .chg-up{color:var(--up)} .chg-down{color:var(--down)}
+  .metaline{color:var(--muted);font-size:12px;margin:2px 0}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .chip{background:var(--chip);color:var(--chip-text);font-size:11px;padding:2px 8px;border-radius:999px}
+  .chip.risk{background:#fee2e2;color:#b91c1c}
+  @media (prefers-color-scheme: dark){.chip.risk{background:#3b1d1d;color:#fca5a5}}
+  .bars{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:11px}
+  .bars .lbl{color:var(--muted)}
+  .bars .track{background:var(--bar-bg);border-radius:4px;height:6px;overflow:hidden}
+  .bars .fill{height:100%;background:var(--accent);border-radius:4px}
+  .bars .val{color:var(--muted);font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
+  .trade{display:flex;gap:14px;margin-top:9px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .trade b{color:var(--text);font-weight:600}
+  .empty{background:var(--card);border:1px dashed var(--border);border-radius:12px;
+    padding:34px 20px;text-align:center;color:var(--muted);font-size:14px}
+  .empty code{background:var(--bar-bg);padding:1px 6px;border-radius:5px;font-size:12px}
+  footer{margin-top:36px;color:var(--muted);font-size:12px;text-align:center;line-height:1.7}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>A股量化选股</h1>
+    <span class="sub" id="generated">加载中…</span>
+  </header>
+  <div class="sub" style="font-size:12px">短线抓技术反弹 · 中长线抓趋势 · 已剔除创业板/科创板/北交所与 ST/退市股</div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="long">中长线趋势</button>
+    <button class="tab" data-tab="short">短线反弹</button>
+  </div>
+
+  <section id="tab-long"></section>
+  <section id="tab-short" class="hidden"></section>
+
+  <footer>
+    数据源：Tushare / akshare，由 GitHub Actions 定时运行生成，结果为量化初筛，仅供研究参考，<b>不构成任何买卖建议</b>。<br>
+    投资有风险，入市需谨慎。
+  </footer>
+</div>
+
+<script>
+const fmtNum = (v, d=2) => (v==null||isNaN(v)) ? '—' : Number(v).toFixed(d);
+const el = (t, c, h) => { const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e; };
+
+function chgClass(v){ return v==null ? '' : (v>=0 ? 'chg-up' : 'chg-down'); }
+function chgText(v){ if(v==null) return '—'; return (v>=0?'+':'')+fmtNum(v)+'%'; }
+function scoreColor(s){ if(s==null) return 'var(--muted)'; if(s>=72) return 'var(--core)'; if(s>=62) return 'var(--watch)'; return 'var(--drop)'; }
+
+function chipList(arr, cls){
+  if(!arr || !arr.length) return null;
+  const box = el('div','chips');
+  arr.slice(0,6).forEach(t => box.appendChild(el('span','chip'+(cls?' '+cls:''), String(t))));
+  return box;
+}
+
+function longCard(s){
+  const c = el('div','card');
+  const top = el('div','card-top');
+  top.appendChild(el('div', null, `<span class="name">${s.name||'—'}</span><span class="code">${s.code||''}</span>`));
+  const sc = el('div');
+  sc.appendChild(el('div','score', fmtNum(s.score,1))).style.color = scoreColor(s.score);
+  sc.appendChild(el('div','rating', s.rating||''));
+  top.appendChild(sc);
+  c.appendChild(top);
+  c.appendChild(el('div','price', `现价 <b>${fmtNum(s.price)}</b> <span class="${chgClass(s.change_pct)}">${chgText(s.change_pct)}</span>`));
+  if(s.buy_price!=null){
+    c.appendChild(el('div','trade',
+      `<span>买入 <b>${fmtNum(s.buy_price)}</b></span>`+
+      `<span>止损 <b>${fmtNum(s.stop_loss)}</b> (${fmtNum(s.stop_loss_pct,1)}%)</span>`+
+      `<span>目标 <b>${fmtNum(s.take_profit)}</b> (${fmtNum(s.take_profit_pct,1)}%)</span>`+
+      (s.risk_reward_ratio!=null?`<span>盈亏比 <b>${fmtNum(s.risk_reward_ratio)}</b></span>`:'')));
+  }
+  const sig = chipList(s.signals); if(sig) c.appendChild(sig);
+  if(s.max_falsification_point) c.appendChild(el('div','metaline', `证伪点：${s.max_falsification_point}`));
+  return c;
+}
+
+function shortCard(s){
+  const c = el('div','card');
+  const top = el('div','card-top');
+  top.appendChild(el('div', null, `<span class="name">${s.name||'—'}</span><span class="code">${s.code||''}</span>`));
+  const sc = el('div');
+  sc.appendChild(el('div','score', fmtNum(s.score,1))).style.color = scoreColor(s.score);
+  sc.appendChild(el('div','rating', s.rating||''));
+  top.appendChild(sc);
+  c.appendChild(top);
+  c.appendChild(el('div','price', `现价 <b>${fmtNum(s.price)}</b> <span class="${chgClass(s.change_pct)}">${chgText(s.change_pct)}</span>`));
+  const meta = [s.trend_state, s.industry, s.primary_theme].filter(Boolean).join(' · ');
+  if(meta) c.appendChild(el('div','metaline', meta));
+  const bars = el('div','bars');
+  [['流动性',s.liquidity_score,20],['趋势',s.trend_score,20],['资金',s.funding_score,20],['技术',s.technical_score,20]]
+    .forEach(([lbl,val,max])=>{
+      bars.appendChild(el('span','lbl',lbl));
+      const track=el('div','track'); const fill=el('div','fill');
+      fill.style.width = Math.max(0,Math.min(100,(val||0)/max*100))+'%'; track.appendChild(fill);
+      bars.appendChild(track);
+      bars.appendChild(el('span','val', fmtNum(val,1)));
+    });
+  c.appendChild(bars);
+  const reasons = chipList(s.reasons); if(reasons) c.appendChild(reasons);
+  const risks = chipList(s.risk_flags,'risk'); if(risks) c.appendChild(risks);
+  return c;
+}
+
+function renderGroup(container, title, color, items, cardFn){
+  const h = el('div','group-title');
+  h.appendChild(el('span','dot')).style.background = color;
+  h.appendChild(document.createTextNode(title));
+  h.appendChild(el('span','count', `${items.length} 只`));
+  container.appendChild(h);
+  const grid = el('div','grid');
+  items.forEach(s => grid.appendChild(cardFn(s)));
+  container.appendChild(grid);
+}
+
+function emptyState(container){
+  container.appendChild(el('div','empty',
+    '暂无数据。请在 GitHub 仓库 <code>Actions</code> 中运行 <b>Analyze and Deploy Pages</b> 工作流，'+
+    '完成后本页会自动更新（需先在仓库 Secrets 配置 <code>TUSHARE_TOKEN</code>）。'));
+}
+
+async function load(){
+  let meta={}, long={}, short={};
+  try{ meta = await (await fetch('data/meta.json?_='+Date.now())).json(); }catch(e){}
+  try{ long = await (await fetch('data/long_term.json?_='+Date.now())).json(); }catch(e){}
+  try{ short = await (await fetch('data/short_term.json?_='+Date.now())).json(); }catch(e){}
+
+  document.getElementById('generated').textContent =
+    meta.generated_at ? ('更新于 '+meta.generated_at) : '尚未生成数据';
+
+  const L = document.getElementById('tab-long');
+  const core=long.core||[], watch=long.watch||[], excl=long.excluded||[];
+  if(core.length||watch.length||excl.length){
+    if(core.length) renderGroup(L,'核心候选','var(--core)',core,longCard);
+    if(watch.length) renderGroup(L,'观察名单','var(--watch)',watch,longCard);
+    if(excl.length) renderGroup(L,'剔除但值得观察','var(--drop)',excl,longCard);
+  } else emptyState(L);
+
+  const S = document.getElementById('tab-short');
+  const stocks = short.stocks||[];
+  if(stocks.length) renderGroup(S,'短线候选','var(--accent)',stocks,shortCard);
+  else emptyState(S);
+}
+
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const t=btn.dataset.tab;
+    document.getElementById('tab-long').classList.toggle('hidden', t!=='long');
+    document.getElementById('tab-short').classList.toggle('hidden', t!=='short');
+  });
+});
+
+load();
+</script>
+</body>
+</html>

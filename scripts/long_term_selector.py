@@ -18,6 +18,7 @@ from advanced_indicators import AdvancedIndicators
 from market_sentiment import calculate_market_sentiment
 from env_settings import TUSHARE_TOKEN
 from email_sender import send_email_with_attachment
+from stock_filters import is_risk_name, filter_risk_codes
 
 
 class LongTermSelector:
@@ -1341,8 +1342,15 @@ class LongTermSelector:
                 and not code.startswith('920')
             ]
 
+            # 过滤: 剔除 ST/*ST/退市股（基于缓存中的股票名称）
+            name_map = self.cache.get_all_names()
+            filtered, removed = filter_risk_codes(filtered, name_map)
+            if removed:
+                print(f"[风险过滤] 剔除 ST/退市股 {len(removed)} 只")
+
             return filtered
-        except:
+        except Exception as e:
+            print(f"读取 watchlist.json 失败: {e}")
             return []
 
     def analyze_single_stock(self, code: str) -> Dict:
@@ -1363,6 +1371,10 @@ class LongTermSelector:
             if not stock_info:
                 return None
             
+            # 剔除 ST/*ST/退市股（防御性拦截，覆盖单只直接调用路径）
+            if is_risk_name(stock_info.get('name')):
+                return None
+
             details = {}
             market_context = self.market_context
 
@@ -1982,6 +1994,12 @@ if __name__ == '__main__':
         selector.save_selected_watchlist(top_stocks, 'watchlist_long_term.json')
         selector.save_selected_watchlist(top_stocks, 'watchlist_long_term_core.json')
         selector.save_selected_watchlist(selection.get('watch', []), 'watchlist_long_term_watch.json')
+        try:
+            from site_export import write_long_term
+            write_long_term(selection)
+            print("已导出中长线结果到 site/data/long_term.json")
+        except Exception as e:
+            print(f"导出中长线站点数据失败: {e}")
         try:
             send_email_with_attachment(
                 subject=f'中长线选股报告 {date_suffix}',
