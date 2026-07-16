@@ -31,7 +31,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "pandas<3" numpy akshare tinyshare flask flask-login requests
+          pip install "pandas<3" numpy akshare flask flask-login requests
+          # tinyshare 不在 PyPI（已被隔离），需从其官方专用源安装
+          pip install tinyshare --extra-index-url https://minidoc.pages.dev/simple/
 
       - name: Run selectors pipeline
         run: python scripts/run_selectors.py

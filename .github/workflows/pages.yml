@@ -38,7 +38,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "pandas<3" numpy akshare tinyshare requests
+          pip install "pandas<3" numpy akshare requests
+          # tinyshare 不在 PyPI（已被隔离），需从其官方专用源安装
+          pip install tinyshare --extra-index-url https://minidoc.pages.dev/simple/
 
       - name: Run analysis
         # 即使数据拉取/分析失败，也继续部署（页面会展示上一次数据或空状态）
