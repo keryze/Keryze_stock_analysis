@@ -2,9 +2,7 @@ name: Analyze and Deploy Pages
 
 on:
   workflow_dispatch:        # 支持在 Actions 页面手动点击运行
-  schedule:
-    # 每个工作日约北京时间 15:30（收盘后）自动运行；如不需要可删除这两行
-    - cron: "30 7 * * 1-5"
+
 
 # GitHub Pages 部署所需权限
 permissions:
