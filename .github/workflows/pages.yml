@@ -34,12 +34,13 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # tinyshare 2.5.x 要求 Python >=3.12（旧版只支持 <3.11，3.11 无可用版本）
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy akshare tinyshare requests
+          pip install "pandas<3" numpy akshare tinyshare requests
 
       - name: Run analysis
         # 即使数据拉取/分析失败，也继续部署（页面会展示上一次数据或空状态）
