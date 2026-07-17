@@ -26,6 +26,9 @@ jobs:
       EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+      # 中长线只分析流动性最高的这么多只股票（2核跑机全市场跑不完）。
+      # 想分析更多就调大；设为 0 表示不预筛、分析全市场（可能超时）。
+      LONG_TERM_MAX_UNIVERSE: "1000"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

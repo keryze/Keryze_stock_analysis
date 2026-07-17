@@ -1736,6 +1736,34 @@ class LongTermSelector:
             'excluded_but_interesting': exclude[:max(5, min(10, len(exclude)))],
         }
     
+    def _prefilter_long_term_universe(self, watchlist: List[str], max_universe: int = 1000) -> List[str]:
+        """中长线按流动性预筛，避免全市场逐只分析在 CI(2核) 上超时。
+
+        按本地缓存的成交额(amount)从高到低排序，取前 max_universe 只；
+        缓存缺失的排在最后。可用环境变量 LONG_TERM_MAX_UNIVERSE 覆盖
+        （设为 0 或负数表示不预筛、分析全市场）。
+        """
+        import os
+        try:
+            max_universe = int(os.getenv('LONG_TERM_MAX_UNIVERSE', str(max_universe)))
+        except (TypeError, ValueError):
+            pass
+        if max_universe <= 0 or len(watchlist) <= max_universe:
+            return watchlist
+        all_stocks = self.cache.get_all_stocks(max_age_minutes=7 * 24 * 60)
+        if not all_stocks:
+            return watchlist[:max_universe]
+        amount_map = {
+            str(s.get('code', '')).zfill(6): self._safe_float(s.get('amount'))
+            for s in all_stocks
+        }
+        ranked = sorted(
+            watchlist,
+            key=lambda c: amount_map.get(str(c).zfill(6), 0.0),
+            reverse=True,
+        )
+        return ranked[:max_universe]
+
     def select_top_stocks(self, top_n: int = 10) -> Dict[str, List[Dict]]:
         """
         选择分层候选池
@@ -1760,7 +1788,8 @@ class LongTermSelector:
             print("监控列表为空")
             return {'core': [], 'watch': [], 'all_ranked': [], 'excluded_but_interesting': []}
 
-        print(f"[long_term] 股票池: 全量 {len(watchlist)}", flush=True)
+        watchlist = self._prefilter_long_term_universe(watchlist)
+        print(f"[long_term] 股票池: 流动性预筛后 {len(watchlist)} 只（LONG_TERM_MAX_UNIVERSE 可调）", flush=True)
         print("[long_term] 预拉历史数据中...", flush=True)
         self._prefetch_history_data_tushare(watchlist, days=int(self.params['history_days_long']))
         
