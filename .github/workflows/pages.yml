@@ -18,7 +18,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 公开仓库 Actions 免费；2核跑机比本地慢很多，全市场分析需要几小时（上限6小时）
+    timeout-minutes: 350
     env:
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       EASTMONEY_COOKIE: ${{ secrets.EASTMONEY_COOKIE }}
@@ -43,8 +44,9 @@ jobs:
           pip install tinyshare --extra-index-url https://minidoc.pages.dev/simple/
 
       - name: Run analysis
-        # 即使数据拉取/分析失败，也继续部署（页面会展示上一次数据或空状态）
+        # 即使数据拉取/分析失败或超时，也继续部署（页面会展示已生成的部分结果）
         continue-on-error: true
+        timeout-minutes: 335
         run: python scripts/run_selectors.py
 
       - name: Configure Pages
