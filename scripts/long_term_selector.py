@@ -764,6 +764,142 @@ class LongTermSelector:
         self.fundamental_cache[code] = out
         return out
 
+    def _recent_report_periods(self, n: int = 2) -> List[str]:
+        """最近 n 个可能已披露的报告期（YYYYMMDD），新→旧。"""
+        today = datetime.now().strftime('%Y%m%d')
+        year = datetime.now().year
+        cands = [
+            f'{yr}{md}'
+            for yr in (year, year - 1, year - 2)
+            for md in ('1231', '0930', '0630', '0331')
+        ]
+        cands = sorted({p for p in cands if p <= today}, reverse=True)
+        return cands[:max(1, n)]
+
+    def _recent_trade_dates_for_basic(self, limit: int = 7) -> List[str]:
+        """最近的开市交易日（YYYYMMDD），新→旧。"""
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - pd.Timedelta(days=20)).strftime('%Y%m%d')
+        try:
+            cal = self.pro.trade_cal(
+                exchange='SSE', is_open='1',
+                start_date=start_date, end_date=end_date, fields='cal_date',
+            )
+            dates = sorted(
+                [str(v) for v in cal['cal_date'].tolist() if str(v).strip()],
+                reverse=True,
+            )
+            return dates[:max(1, limit)] or [end_date]
+        except Exception:
+            return [end_date]
+
+    def _prefetch_fundamentals_tushare(self, codes: List[str]) -> None:
+        """批量预取基本面到 self.fundamental_cache，避免中长线逐只联网查询。
+
+        估值走 daily_basic(按交易日)、财务走 fina_indicator/income/cashflow(按报告期)
+        的批量接口，一次拉全市场。任何接口不可用、或某只股票缺数据时，该股票不写缓存，
+        自动回退到 _get_tushare_fundamental_profile 的逐只查询（零风险、不改选股结果）。
+        """
+        try:
+            want = {self._to_ts_code(str(c).zfill(6)): str(c).zfill(6) for c in codes}
+            if not want:
+                return
+
+            def _index(df):
+                out = {}
+                if df is not None and not df.empty and 'ts_code' in df.columns:
+                    for _, row in df.iterrows():
+                        tc = str(row.get('ts_code'))
+                        if tc and tc not in out:
+                            out[tc] = row
+                return out
+
+            # 1) 估值：daily_basic 按最近有数据的交易日，一次拉全市场
+            basic_map = {}
+            try:
+                for td in self._recent_trade_dates_for_basic():
+                    df = self.pro.daily_basic(
+                        trade_date=td, fields='ts_code,pe,pe_ttm,dv_ttm,dv_ratio')
+                    if df is not None and not df.empty:
+                        basic_map = _index(df)
+                        break
+            except Exception as e:
+                print(f"[long_term] 批量估值不可用，估值回退逐只: {e}", flush=True)
+
+            # 2) 财务：按报告期批量（vip 优先），合并最近两期（新期优先）
+            def _bulk_by_period(std_name, vip_name, fields):
+                merged = {}
+                callers = []
+                vip = getattr(self.pro, vip_name, None)
+                if callable(vip):
+                    callers.append(vip)
+                callers.append(getattr(self.pro, std_name))
+                for period in self._recent_report_periods(n=3):
+                    frame = None
+                    for caller in callers:
+                        try:
+                            frame = caller(period=period, fields=fields)
+                            if frame is not None and not frame.empty:
+                                break
+                        except Exception:
+                            frame = None
+                    for tc, row in _index(frame).items():
+                        merged.setdefault(tc, row)
+                return merged
+
+            fina_map = _bulk_by_period(
+                'fina_indicator', 'fina_indicator_vip',
+                'ts_code,end_date,roe,q_roe,netprofit_yoy,q_netprofit_yoy,tr_yoy,q_sales_yoy,or_yoy,roic')
+            if not fina_map:
+                print("[long_term] 批量财务接口不可用，本轮基本面全部回退逐只", flush=True)
+                return
+            cash_map = _bulk_by_period('cashflow', 'cashflow_vip', 'ts_code,end_date,n_cashflow_act')
+            inc_map = _bulk_by_period('income', 'income_vip', 'ts_code,end_date,n_income_attr_p')
+
+            sf = self._safe_float_or_none
+            cached = 0
+            for tc, code in want.items():
+                fr = fina_map.get(tc)
+                if fr is None:
+                    continue  # 主财务缺失 -> 不缓存，回退逐只
+                br, cr, ir = basic_map.get(tc), cash_map.get(tc), inc_map.get(tc)
+
+                roe = sf(fr.get('roe'))
+                if roe is None:
+                    roe = sf(fr.get('q_roe'))
+                pg = sf(fr.get('netprofit_yoy'))
+                if pg is None:
+                    pg = sf(fr.get('q_netprofit_yoy'))
+                rg = sf(fr.get('tr_yoy'))
+                if rg is None:
+                    rg = sf(fr.get('q_sales_yoy'))
+                if rg is None:
+                    rg = sf(fr.get('or_yoy'))
+
+                pe = dv = None
+                if br is not None:
+                    pe = sf(br.get('pe_ttm'))
+                    if pe is None:
+                        pe = sf(br.get('pe'))
+                    dv = sf(br.get('dv_ttm'))
+                    if dv is None:
+                        dv = sf(br.get('dv_ratio'))
+
+                ocf = sf(cr.get('n_cashflow_act')) if cr is not None else None
+                npf = sf(ir.get('n_income_attr_p')) if ir is not None else None
+                ratio = ocf / npf if (ocf is not None and npf not in (None, 0)) else None
+
+                self.fundamental_cache[code] = {
+                    'code': code, 'roe': roe, 'profit_growth': pg,
+                    'revenue_growth': rg, 'dividend_yield': dv, 'pe': pe,
+                    'roic': sf(fr.get('roic')), 'ocf': ocf, 'net_profit': npf,
+                    'ocf_np_ratio': ratio, 'source': 'tushare-bulk',
+                }
+                cached += 1
+            print(f"[long_term] 基本面批量预取命中 {cached}/{len(want)} 只（其余回退逐只）", flush=True)
+        except Exception as e:
+            print(f"[long_term] 基本面批量预取异常，全部回退逐只: {e}", flush=True)
+
     def _score_quality_moat_proxy(self, data: Dict, sector_info: Dict) -> Dict:
         """质量/护城河代理分（ROIC + 现金流质量 + 行业长期属性），满分 15。"""
         roic = self._safe_float(data.get('roic'))
@@ -1792,7 +1928,9 @@ class LongTermSelector:
         print(f"[long_term] 股票池: 流动性预筛后 {len(watchlist)} 只（LONG_TERM_MAX_UNIVERSE 可调）", flush=True)
         print("[long_term] 预拉历史数据中...", flush=True)
         self._prefetch_history_data_tushare(watchlist, days=int(self.params['history_days_long']))
-        
+        print("[long_term] 预取基本面(批量)中...", flush=True)
+        self._prefetch_fundamentals_tushare(watchlist)
+
         print(f"分析 {len(watchlist)} 只股票...")
         print()
         
