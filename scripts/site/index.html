@@ -58,6 +58,9 @@
   .empty{background:var(--card);border:1px dashed var(--border);border-radius:12px;
     padding:34px 20px;text-align:center;color:var(--muted);font-size:14px}
   .empty code{background:var(--bar-bg);padding:1px 6px;border-radius:5px;font-size:12px}
+  .banner{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:12px;
+    padding:13px 16px;margin:14px 0 4px;font-size:14px;line-height:1.6}
+  @media (prefers-color-scheme: dark){.banner{background:#2a1a0e;border-color:#7c2d12;color:#fdba74}}
   footer{margin-top:36px;color:var(--muted);font-size:12px;text-align:center;line-height:1.7}
   .hidden{display:none}
 </style>
@@ -165,6 +168,10 @@ function emptyState(container){
     '完成后本页会自动更新（需先在仓库 Secrets 配置 <code>TUSHARE_TOKEN</code>）。'));
 }
 
+function noteBanner(container, text){
+  container.appendChild(el('div','banner', '⚠️ ' + text));
+}
+
 async function load(){
   let meta={}, long={}, short={};
   try{ meta = await (await fetch('data/meta.json?_='+Date.now())).json(); }catch(e){}
@@ -184,8 +191,17 @@ async function load(){
 
   const S = document.getElementById('tab-short');
   const stocks = short.stocks||[];
-  if(stocks.length) renderGroup(S,'短线候选','var(--accent)',stocks,shortCard);
-  else emptyState(S);
+  if(short.abstain && short.note) noteBanner(S, short.note);
+  if(stocks.length){
+    renderGroup(S, short.abstain ? '评分最高（仅供参考·非推荐）' : '短线候选',
+                'var(--accent)', stocks, shortCard);
+  } else if(short.note){
+    // 空仓且无参考股
+  } else if(!short.generated_at){
+    emptyState(S);
+  } else {
+    S.appendChild(el('div','empty','今日无短线数据。'));
+  }
 }
 
 document.querySelectorAll('.tab').forEach(btn=>{

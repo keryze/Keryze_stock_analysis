@@ -95,12 +95,27 @@ def write_long_term(selection: Dict) -> None:
     _update_meta(long_term_generated_at=now, long_term_count=len(payload['core']))
 
 
-def write_short_term(stocks: List[Dict]) -> None:
-    """导出短线结果。stocks 为 select_top_stocks() 返回的候选列表。"""
+_MARKET_FIELDS = ['sentiment_score', 'regime', 'up_ratio', 'limit_up', 'limit_down']
+
+
+def write_short_term(stocks, context=None, note=None, abstain=False) -> None:
+    """导出短线结果。
+
+    stocks   : 要展示的股票列表（正常为最终推荐；空仓日为评分最高的参考股）。
+    context  : 市场环境字典（用于展示情绪分/涨跌停等）。
+    note     : 提示语（空仓日说明为何建议观望）。
+    abstain  : True 表示今日建议空仓、下列股票仅供参考、非买入推荐。
+    """
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    market = {}
+    if context:
+        market = {k: _clean(context.get(k)) for k in _MARKET_FIELDS}
     payload = {
         'generated_at': now,
         'stocks': [_pick(s, SHORT_FIELDS) for s in (stocks or [])],
+        'abstain': bool(abstain),
+        'note': note,
+        'market': market,
     }
     _write_json('short_term.json', payload)
     _update_meta(short_term_generated_at=now, short_term_count=len(payload['stocks']))

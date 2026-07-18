@@ -1989,32 +1989,65 @@ if __name__ == '__main__':
     # 仅输出最终结果，避免大量过程日志导致终端卡顿
     top_stocks = selector.select_top_stocks(top_n=10, verbose=True)
 
-    if top_stocks:
-        for i, stock in enumerate(top_stocks, 1):
-            print(f"{i}. {stock['code']} {stock['name']} | 评分 {stock['score']:.1f} | 现价 {stock['price']:.2f} | 涨跌 {stock['change_pct']:+.2f}%")
+    ctx = selector.market_context or {}
+    # 空仓日：无最终推荐时，仍取全市场评分最高的5只作参考，并给出空仓提示
+    abstain = not top_stocks
+    if abstain:
+        ranked = sorted(
+            getattr(selector, 'last_results', []) or [],
+            key=lambda x: x.get('candidate_score', 0.0),
+            reverse=True,
+        )
+        display_stocks = ranked[:5]
+        _ss = float(ctx.get('sentiment_score', 0) or 0)
+        _up = float(ctx.get('up_ratio', 0) or 0)
+        _up = _up * 100 if _up <= 1 else _up
+        note = (
+            f"今日市场风险偏高，短线建议空仓等待"
+            f"（情绪分 {_ss:.0f}、上涨占比 {_up:.0f}%、"
+            f"涨停/跌停 {ctx.get('limit_up', 0)}/{ctx.get('limit_down', 0)}）。"
+            f"下列为全市场评分最高的 {len(display_stocks)} 只，仅供参考，非买入推荐。"
+        )
+    else:
+        display_stocks = top_stocks
+        note = None
 
-        report = selector.generate_report(top_stocks)
-        date_suffix = datetime.now().strftime('%Y%m%d')
-        recommend_dir = Path(__file__).resolve().parent / 'recommend'
-        recommend_dir.mkdir(parents=True, exist_ok=True)
-        report_file = recommend_dir / f'short_term_recommendation_{date_suffix}.txt'
-        with open(report_file, 'w', encoding='utf-8') as f:
-            f.write(report)
-        selector.save_selected_watchlist(top_stocks, 'watchlist_short_term.json')
-        try:
-            from site_export import write_short_term
-            write_short_term(top_stocks)
-            print("已导出短线结果到 site/data/short_term.json")
-        except Exception as e:
-            print(f"导出短线站点数据失败: {e}")
-        try:
-            send_email_with_attachment(
-                subject=f'短线选股报告 {date_suffix}',
-                body='短线选股报告见附件。',
-                attachment_path=report_file,
-            )
-            print("已发送短线报告到QQ邮箱")
-        except Exception as e:
-            print(f"短线报告邮件发送失败: {e}")
+    for i, stock in enumerate(display_stocks, 1):
+        _sc = stock.get('candidate_score', stock.get('score', 0)) or 0
+        print(f"{i}. {stock.get('code')} {stock.get('name')} | 评分 {_sc:.1f} | 现价 {stock.get('price', 0):.2f} | 涨跌 {stock.get('change_pct', 0):+.2f}%")
+
+    report = selector.generate_report(top_stocks)
+    date_suffix = datetime.now().strftime('%Y%m%d')
+    recommend_dir = Path(__file__).resolve().parent / 'recommend'
+    recommend_dir.mkdir(parents=True, exist_ok=True)
+    report_file = recommend_dir / f'short_term_recommendation_{date_suffix}.txt'
+    with open(report_file, 'w', encoding='utf-8') as f:
+        f.write(report)
+    selector.save_selected_watchlist(top_stocks, 'watchlist_short_term.json')
+
+    try:
+        from site_export import write_short_term
+        write_short_term(display_stocks, context=ctx, note=note, abstain=abstain)
+        print("已导出短线结果到 site/data/short_term.json")
+    except Exception as e:
+        print(f"导出短线站点数据失败: {e}")
+
+    try:
+        if abstain:
+            subject = f'短线空仓提示 {date_suffix}'
+            body_lines = [note, '']
+            for i, s in enumerate(display_stocks, 1):
+                body_lines.append(
+                    f"{i}. {s.get('name', '')}({s.get('code', '')}) "
+                    f"{s.get('candidate_score', 0):.1f}分 {s.get('trend_state', '')}"
+                )
+            body = '\n'.join(body_lines)
+        else:
+            subject = f'短线选股报告 {date_suffix}'
+            body = '短线选股报告见附件。'
+        send_email_with_attachment(subject=subject, body=body, attachment_path=report_file)
+        print("已发送短线邮件到QQ邮箱")
+    except Exception as e:
+        print(f"短线报告邮件发送失败: {e}")
 
     selector.close()
