@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 
 SITE_DIR = Path(__file__).resolve().parent / 'site'
 DATA_DIR = SITE_DIR / 'data'
+HISTORY_DIR = DATA_DIR / 'history'
 
 # 中长线：从结果字典中挑选前端展示字段
 LONG_FIELDS = [
@@ -63,6 +64,36 @@ def _write_json(filename: str, payload: Dict) -> None:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
+def _archive(kind: str, payload: Dict, generated_at: str) -> None:
+    """把当日结果按日期存档到 history/<YYYYMMDD>_<kind>.json，并更新 index.json。
+
+    kind 为 'long' 或 'short'。文件很小（几 KB），可长期累积供网站翻看历史。
+    """
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    date_str = datetime.now().strftime('%Y%m%d')
+    with open(HISTORY_DIR / f'{date_str}_{kind}.json', 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    index_path = HISTORY_DIR / 'index.json'
+    entries = []
+    if index_path.exists():
+        try:
+            loaded = json.loads(index_path.read_text(encoding='utf-8'))
+            if isinstance(loaded, list):
+                entries = loaded
+        except Exception:
+            entries = []
+    entry = next((e for e in entries if e.get('date') == date_str), None)
+    if entry is None:
+        entry = {'date': date_str}
+        entries.append(entry)
+    entry[kind] = True
+    entry['generated_at'] = generated_at
+    entries.sort(key=lambda e: str(e.get('date', '')), reverse=True)
+    with open(index_path, 'w', encoding='utf-8') as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
+
 def _update_meta(**kwargs: Any) -> None:
     """维护一个汇总 meta.json，记录最近生成时间与各榜单数量。"""
     _ensure_dir()
@@ -92,6 +123,7 @@ def write_long_term(selection: Dict) -> None:
         ],
     }
     _write_json('long_term.json', payload)
+    _archive('long', payload, now)
     _update_meta(long_term_generated_at=now, long_term_count=len(payload['core']))
 
 
@@ -118,4 +150,5 @@ def write_short_term(stocks, context=None, note=None, abstain=False) -> None:
         'market': market,
     }
     _write_json('short_term.json', payload)
+    _archive('short', payload, now)
     _update_meta(short_term_generated_at=now, short_term_count=len(payload['stocks']))
