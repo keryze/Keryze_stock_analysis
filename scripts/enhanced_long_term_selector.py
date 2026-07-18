@@ -35,11 +35,11 @@ class EnhancedLongTermSelector:
             with open('watchlist.json', 'r') as f:
                 all_stocks = json.load(f)
             
-            # 过滤: 排除3开头(创业板)和688开头(科创板)和北交所920
+            # 过滤: 只排除北交所(4/8/920开头)，保留创业板(3)与科创板(688)
             filtered = [
                 code for code in all_stocks
-                if not code.startswith('3')
-                and not code.startswith('688')
+                if not code.startswith('4')
+                and not code.startswith('8')
                 and not code.startswith('920')
             ]
             

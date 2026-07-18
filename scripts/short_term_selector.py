@@ -1507,8 +1507,8 @@ class ShortTermSelector:
 
             filtered = [
                 code for code in all_stocks
-                if not code.startswith('3')
-                and not code.startswith('688')
+                if not code.startswith('4')
+                and not code.startswith('8')
                 and not code.startswith('920')
             ]
 
