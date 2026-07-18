@@ -48,9 +48,17 @@ class StockCache:
                 change_pct REAL,
                 volume REAL,
                 amount REAL,
-                update_time TIMESTAMP
+                update_time TIMESTAMP,
+                turnover REAL,
+                amplitude REAL
             )
         ''')
+        # 迁移：为旧库补充换手率/振幅两列（已存在则忽略）
+        for _col in ('turnover', 'amplitude'):
+            try:
+                cursor.execute(f'ALTER TABLE stocks ADD COLUMN {_col} REAL')
+            except Exception:
+                pass
         
         # 主力资金表
         cursor.execute('''
@@ -110,9 +118,9 @@ class StockCache:
             if not norm_code:
                 continue
             cursor.execute('''
-                INSERT OR REPLACE INTO stocks 
-                (code, name, price, change_pct, volume, amount, update_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO stocks
+                (code, name, price, change_pct, volume, amount, update_time, turnover, amplitude)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 norm_code,
                 stock['name'],
@@ -120,7 +128,9 @@ class StockCache:
                 stock['change_pct'],
                 stock.get('volume', 0),
                 stock.get('amount', 0),
-                now
+                now,
+                stock.get('turnover', 0),
+                stock.get('amplitude', 0)
             ))
         
         self.conn.commit()
@@ -138,9 +148,11 @@ class StockCache:
             return
         cursor = self.conn.cursor()
         norm_code = self.normalize_code(code)
-        cursor.execute('SELECT * FROM stocks WHERE code = ?', (norm_code,))
+        cursor.execute(
+            'SELECT code, name, price, change_pct, volume, amount, update_time, turnover, amplitude '
+            'FROM stocks WHERE code = ?', (norm_code,))
         row = cursor.fetchone()
-        
+
         if row:
             return {
                 'code': row[0],
@@ -149,7 +161,9 @@ class StockCache:
                 'change_pct': row[3],
                 'volume': row[4],
                 'amount': row[5],
-                'update_time': row[6]
+                'update_time': row[6],
+                'turnover': row[7],
+                'amplitude': row[8],
             }
         return None
     
@@ -159,12 +173,12 @@ class StockCache:
         cutoff = datetime.now() - timedelta(minutes=max_age_minutes)
         
         cursor.execute('''
-            SELECT code, name, price, change_pct, volume, amount, update_time
+            SELECT code, name, price, change_pct, volume, amount, update_time, turnover, amplitude
             FROM stocks
             WHERE update_time > ?
             ORDER BY change_pct DESC
         ''', (cutoff,))
-        
+
         stocks = []
         seen = set()
         for row in cursor.fetchall():
@@ -179,7 +193,9 @@ class StockCache:
                 'change_pct': row[3],
                 'volume': row[4],
                 'amount': row[5],
-                'update_time': row[6]
+                'update_time': row[6],
+                'turnover': row[7],
+                'amplitude': row[8],
             })
         
         return stocks

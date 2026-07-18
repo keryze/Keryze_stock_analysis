@@ -83,6 +83,21 @@ def _load_name_map(pro) -> Dict[str, str]:
         return {}
 
 
+def _load_turnover_map(pro, trade_date: str) -> Dict[str, float]:
+    """按交易日一次拉取全市场换手率（daily_basic.turnover_rate）。"""
+    try:
+        df = pro.daily_basic(trade_date=trade_date, fields='ts_code,turnover_rate')
+        if df is None or df.empty:
+            return {}
+        return {
+            str(r['ts_code']): _safe_float(r.get('turnover_rate'))
+            for _, r in df.iterrows()
+            if str(r.get('ts_code', '')).strip()
+        }
+    except Exception:
+        return {}
+
+
 def update_all_market_data(trade_date: Optional[str] = None) -> int:
     print(f"\n{'='*60}")
     print('开始更新全市场A股数据（Tushare）')
@@ -100,6 +115,8 @@ def update_all_market_data(trade_date: Optional[str] = None) -> int:
         print(f'成功拉取 {len(df)} 条，trade_date={used_date}')
         print('正在拉取股票名称映射...')
         name_map = _load_name_map(pro)
+        print('正在拉取全市场换手率...')
+        turnover_map = _load_turnover_map(pro, used_date)
 
         stocks_data = []
         for _, row in df.iterrows():
@@ -110,9 +127,13 @@ def update_all_market_data(trade_date: Optional[str] = None) -> int:
             open_price = _safe_float(row.get('open'))
             close_price = _safe_float(row.get('close'))
             pre_close = _safe_float(row.get('pre_close'))
+            high_price = _safe_float(row.get('high'))
+            low_price = _safe_float(row.get('low'))
             pct_chg = _safe_float(row.get('pct_chg'))
             if pct_chg == 0 and pre_close:
                 pct_chg = ((close_price - pre_close) / pre_close) * 100
+            # 振幅 = (最高 - 最低) / 昨收 * 100
+            amplitude = ((high_price - low_price) / pre_close * 100) if pre_close else 0.0
 
             stocks_data.append({
                 'code': code,
@@ -121,6 +142,8 @@ def update_all_market_data(trade_date: Optional[str] = None) -> int:
                 'change_pct': pct_chg,
                 'volume': _safe_float(row.get('vol')) * 100,
                 'amount': _safe_float(row.get('amount')) * 1000,
+                'turnover': turnover_map.get(ts_code, 0.0),
+                'amplitude': amplitude,
             })
 
         if not stocks_data:
